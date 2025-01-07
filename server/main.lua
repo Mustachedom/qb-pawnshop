@@ -1,4 +1,33 @@
 local QBCore = exports['qb-core']:GetCoreObject()
+local recieved = {}
+local items = {
+    Pawn = {
+        goldchain       = {price = {min = 50, max = 100}},
+        diamond_ring    = {price = {min = 50, max = 100}},
+        rolex           = {price = {min = 50, max = 100}},
+        tenkgoldchain   = {price = {min = 50, max = 100}},
+        tablet          = {price = {min = 50, max = 100}},
+        iphone          = {price = {min = 50, max = 100}},
+        samsungphone    = {price = {min = 50, max = 100}},
+        laptop          = {price = {min = 50, max = 100}},
+    },
+    Smelt = { -- time = amount of time in minutes per item
+        goldchain     = {time = 15, reward = { goldbar = 1 } },
+        diamond_ring  = {time = 15, reward = { goldbar = 1, diamond = 1 } },
+        rolex         = {time = 15, reward = { goldbar = 1, diamond = 1, electronickit = 1 } },
+        tenkgoldchain = {time = 15, reward = { goldbar = 1, diamond = 5 } },
+    }
+}
+
+local locations = {
+    {coords = vector4(412.34, 314.81, 103.13, 207.0), length = 1.5, width = 1.8,debugPoly = false, distance = 3.0},
+}
+
+local function getCid(source)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    return Player.PlayerData.citizenid
+end
 
 local function exploitBan(id, reason)
     MySQL.insert('INSERT INTO bans (name, license, discord, ip, reason, expire, bannedby) VALUES (?, ?, ?, ?, ?, ?, ?)',
@@ -16,84 +45,204 @@ local function exploitBan(id, reason)
     DropPlayer(id, 'You were permanently banned by the server for: Exploiting')
 end
 
-RegisterNetEvent('qb-pawnshop:server:sellPawnItems', function(itemName, itemAmount, itemPrice)
+local function distCheck(source)
     local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    local totalPrice = (tonumber(itemAmount) * itemPrice)
-    local playerCoords = GetEntityCoords(GetPlayerPed(src))
-    local dist
-    for _, value in pairs(Config.PawnLocation) do
-        dist = #(playerCoords - value.coords)
-        if #(playerCoords - value.coords) < 2 then
-            dist = #(playerCoords - value.coords)
-            break
+    local playerPed = GetPlayerPed(src)
+    local pcoords = GetEntityCoords(playerPed)
+    local ok
+    for k, v in pairs (locations) do
+        local coords = vector3(v.coords.x, v.coords.y, v.coords.z)
+        if #(pcoords - coords) < v.distance then
+            ok = true
         end
     end
-    if dist > 5 then
-        exploitBan(src, 'sellPawnItems Exploiting')
+    if ok then return true else exploitBan(src, 'Distance Fail For QB-Pawnshop') return false end
+end
+
+QBCore.Functions.CreateCallback('qb-pawnshop:server:getLocations', function(source, cb)
+    cb(locations)
+end)
+
+local function editAmount(source, it)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not items.Pawn[it] then return 0 end
+    local item = Player.Functions.GetItemByName(it)
+    if item and item.amount > 0 then 
+        return item.amount
+    else
+       return 0
+    end
+end
+
+QBCore.Functions.CreateCallback('qb-pawnshop:server:getPawnItems', function(source, cb)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    local info = {}
+    if recieved[Player.PlayerData.citizenid] then
+        for k, v in pairs (recieved[getCid(src)].items) do
+            table.insert(info, {label = QBCore.Shared.Items[v.item].label, item = v.item, amount = editAmount(src, v.item), price = v.price})
+        end
+        recieved[getCid(src)].items = info
+        cb(recieved[getCid(src)])
         return
     end
-    if exports['qb-inventory']:RemoveItem(src, itemName, tonumber(itemAmount), false, 'qb-pawnshop:server:sellPawnItems') then
-        if Config.BankMoney then
-            Player.Functions.AddMoney('bank', totalPrice, 'qb-pawnshop:server:sellPawnItems')
+    local has = 0
+    for k, v in pairs (items.Pawn) do
+        local item = Player.Functions.GetItemByName(k)
+        if item and item.amount > 0 then
+            has = has + 1
+            table.insert(info, {label = QBCore.Shared.Items[k].label, item = k, amount = item.amount, price = math.random(v.price.min, v.price.max)})
         else
-            Player.Functions.AddMoney('cash', totalPrice, 'qb-pawnshop:server:sellPawnItems')
-        end
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('success.sold', { value = tonumber(itemAmount), value2 = QBCore.Shared.Items[itemName].label, value3 = totalPrice }), 'success')
-        TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[itemName], 'remove')
-    else
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_items'), 'error')
-    end
-    TriggerClientEvent('qb-pawnshop:client:openMenu', src)
-end)
-
-RegisterNetEvent('qb-pawnshop:server:meltItemRemove', function(itemName, itemAmount, item)
-    local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    if exports['qb-inventory']:RemoveItem(src, itemName, itemAmount, false, 'qb-pawnshop:server:meltItemRemove') then
-        TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[itemName], 'remove')
-        local meltTime = (tonumber(itemAmount) * item.time)
-        TriggerClientEvent('qb-pawnshop:client:startMelting', src, item, tonumber(itemAmount), (meltTime * 60000 / 1000))
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('info.melt_wait', { value = meltTime }), 'primary')
-    else
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_items'), 'error')
-    end
-end)
-
-RegisterNetEvent('qb-pawnshop:server:pickupMelted', function(item)
-    local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    local playerCoords = GetEntityCoords(GetPlayerPed(src))
-    local dist
-    for _, value in pairs(Config.PawnLocation) do
-        dist = #(playerCoords - value.coords)
-        if #(playerCoords - value.coords) < 2 then
-            dist = #(playerCoords - value.coords)
-            break
+            table.insert(info, {label = QBCore.Shared.Items[k].label, item = k, amount = 0, price = math.random(v.price.min, v.price.max)})
         end
     end
-    if dist > 5 then
-        exploitBan(src, 'pickupMelted Exploiting')
+    if has == 0 then
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_items'), 'error')
+        cb(false)
         return
     end
-    for _, v in pairs(item.items) do
-        local meltedAmount = v.amount
-        for _, m in pairs(v.item.reward) do
-            local rewardAmount = m.amount
-            if exports['qb-inventory']:AddItem(src, m.item, (meltedAmount * rewardAmount), false, false, 'qb-pawnshop:server:pickupMelted') then
-                TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[m.item], 'add')
-                TriggerClientEvent('QBCore:Notify', src, Lang:t('success.items_received', { value = (meltedAmount * rewardAmount), value2 = QBCore.Shared.Items[m.item].label }), 'success')
-                TriggerClientEvent('qb-pawnshop:client:resetPickup', src)
+    recieved[getCid(src)] = {name = Player.PlayerData.charinfo.firstname .. ' ' .. Player.PlayerData.charinfo.lastname, items = info}
+    cb(recieved[getCid(src)])
+end)
+
+local function verifyItem(source, itemName, itemPrice, amount, total)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if not recieved[Player.PlayerData.citizenid] then return false end
+    for k, v in pairs (recieved[Player.PlayerData.citizenid].items) do
+        if v.item == itemName and v.price == itemPrice and tonumber(v.amount) >= tonumber(amount) then
+            if v.price * amount == total then
+                return true
             else
-                TriggerClientEvent('QBCore:Notify', src, Lang:t('error.inventory_full', { value = QBCore.Shared.Items[m.item].label }), 'warning', 7500)
+                return false
             end
         end
     end
+end
+
+local function handleSell(source, item, amount, price)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    if exports['qb-inventory']:RemoveItem(src, item, tonumber(amount), false, 'qb-pawnshop:server:sellPawnItems') then
+        if Config.BankMoney then
+            Player.Functions.AddMoney('bank', price, 'qb-pawnshop:server:sellPawnItems')
+        else
+            Player.Functions.AddMoney('cash', price, 'qb-pawnshop:server:sellPawnItems')
+        end
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('success.sold', { value = tonumber(amount), value2 = QBCore.Shared.Items[item].label, value3 = price }), 'success')
+        TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[item], 'remove')
+    else
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_items'), 'error')
+        return false
+    end
+    return true
+end
+
+RegisterNetEvent('qb-pawnshop:server:sellPawnItems', function(itemName, itemAmount, itemPrice)
+    local src = source
+    local totalPrice = (tonumber(itemAmount) * itemPrice)
+    local dist = distCheck(src)
+    if not dist then return end
+    if not verifyItem(src, itemName, itemPrice, itemAmount, totalPrice) then return end
+    handleSell(src, itemName, itemAmount, totalPrice)
     TriggerClientEvent('qb-pawnshop:client:openMenu', src)
 end)
 
-QBCore.Functions.CreateCallback('qb-pawnshop:server:getInv', function(source, cb)
-    local Player = QBCore.Functions.GetPlayer(source)
-    local inventory = Player.PlayerData.items
-    return cb(inventory)
+local function pickupSmelt(source, data) 
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    local dist = distCheck(src)
+    if not dist then return end
+
+    for k, v in pairs (items.Smelt[data.item].reward) do 
+        Player.Functions.AddItem(k, v * data.amount, false, false, 'qb-pawnshop:server:pickupSmelt')
+        TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[k], 'add', v * data.amount)
+    end
+
+    MySQL.query('DELETE FROM smelting WHERE citizenid = ?', {getCid(src)})
+end
+
+QBCore.Functions.CreateCallback('qb-pawnshop:server:getSmelt', function(source, cb)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    local smelting = MySQL.query.await('SELECT * FROM smelting WHERE citizenid = ?', {getCid(src)})
+    if smelting and smelting[1] then
+        if tonumber(smelting[1].time) < os.time() then
+            pickupSmelt(src, smelting[1])
+            local info = {}
+            local has = 0
+            for k, v in pairs (items.Smelt) do
+                local item = Player.Functions.GetItemByName(k)
+                if item and item.amount > 0 then
+                    has = has + 1
+                    table.insert(info, {label = QBCore.Shared.Items[k].label, item = k, amount = item.amount, time = v.time, recipe = v.reward})
+                else
+                    table.insert(info, {label = QBCore.Shared.Items[k].label, item = k, amount = 0, time = v.time, recipe = v.reward})
+                end
+            end
+            if has == 0 then
+                TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_items'), 'error')
+                cb('no items')
+                return
+            end
+            cb(info)
+            return
+        else
+            cb('already smelt')
+            return
+        end
+    else
+        local info = {}
+        local has = 0
+        for k, v in pairs (items.Smelt) do
+            has = has + 1
+            local item = Player.Functions.GetItemByName(k)
+            if item and item.amount > 0 then
+                table.insert(info, {label = QBCore.Shared.Items[k].label, item = k, amount = item.amount, time = v.time, recipe = v.reward})
+            else
+                table.insert(info, {label = QBCore.Shared.Items[k].label, item = k, amount = 0, time = v.time, recipe = v.reward})
+            end
+        end
+        if has == 0 then
+            TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_items'), 'error')
+            cb(false)
+            return
+        end
+        cb(info)
+    end
+end)
+
+local function verifynremoveSmelt(source, item, amount)
+    local src = source
+    local has = MySQL.query.await('SELECT * FROM smelting WHERE citizenid = ?', {getCid(src)})
+    if has and #has > 0 then
+        return 'Already Smelting'
+    else
+        if exports['qb-inventory']:RemoveItem(src, item, amount, false, 'qb-pawnshop:server:meltItemRemove') then
+            TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[item], 'remove', amount)
+            MySQL.insert('INSERT INTO smelting (citizenid, item, amount, time) VALUES (?, ?, ?,?)',
+            {getCid(src), item, amount, ((amount * items.Smelt[item].time) * 60) + os.time()})
+            return true
+        else
+            return false
+        end
+    end
+end
+
+RegisterNetEvent('qb-pawnshop:server:meltItemRemove', function(itemName, itemAmount)
+    local src = source
+    local dist = distCheck(src)
+    if not dist then return end
+    local verified = verifynremoveSmelt(src, itemName, itemAmount)
+    if verified == 'Already Smelting' then 
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.already_smelt'), 'error')
+          return
+    elseif not verified then 
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_items'), 'error')
+         return
+    else
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('success.smelt_started', { value = itemAmount, value2 = QBCore.Shared.Items[itemName].label }), 'success')
+        TriggerClientEvent('qb-pawnshop:client:openMenu', src)
+    end
 end)
