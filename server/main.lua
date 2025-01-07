@@ -23,6 +23,24 @@ local locations = {
     {coords = vector4(412.34, 314.81, 103.13, 207.0), length = 1.5, width = 1.8,debugPoly = false, distance = 3.0},
 }
 
+CreateThread(function()
+    for k, v in pairs (items.Smelt) do
+        if not QBCore.Shared.Items[k] then
+            print('^1 Missing Item: ' .. k .. ' in qb-core/shared/items.lua')
+        end
+        for m, d in pairs (v.reward) do
+            if not QBCore.Shared.Items[m] then
+                print('^1 Missing Item: ' .. m .. ' in qb-core/shared/items.lua')
+            end
+        end
+    end
+    for k, v in pairs (items.Pawn) do
+        if not QBCore.Shared.Items[k] then
+            print('^1 Missing Item: ' .. k .. ' in qb-core/shared/items.lua')
+        end
+    end
+end)
+
 local function getCid(source)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
