@@ -1,5 +1,6 @@
 local QBCore = exports['qb-core']:GetCoreObject()
-local recieved = {}
+local recieved = {} -- no touch, script uses this to store pawn prices
+
 local items = {
     Pawn = {
         goldchain       = {price = {min = 50, max = 100}},
@@ -23,7 +24,12 @@ local locations = {
     {coords = vector4(412.34, 314.81, 103.13, 207.0), length = 1.5, width = 1.8,debugPoly = false, distance = 3.0},
 }
 
-CreateThread(function()
+CreateThread(function() -- simple debug to verify all items required for script are here
+    local check = QBCore.Shared.Items
+    if check == nil then
+        print('^1 qb-core/shared/items.lua is missing, check for , and } :)')
+        return
+    end
     for k, v in pairs (items.Smelt) do
         if not QBCore.Shared.Items[k] then
             print('^1 Missing Item: ' .. k .. ' in qb-core/shared/items.lua')
@@ -45,6 +51,12 @@ local function getCid(source)
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
     return Player.PlayerData.citizenid
+end
+
+local function getName(source)
+    local src = source
+    local Player = QBCore.Functions.GetPlayer(src)
+    return Player.PlayerData.charinfo.firstname .. ' ' .. Player.PlayerData.charinfo.lastname
 end
 
 local function exploitBan(id, reason)
@@ -86,7 +98,7 @@ local function editAmount(source, it)
     local Player = QBCore.Functions.GetPlayer(src)
     if not items.Pawn[it] then return 0 end
     local item = Player.Functions.GetItemByName(it)
-    if item and item.amount > 0 then 
+    if item and item.amount > 0 then
         return item.amount
     else
        return 0
@@ -97,14 +109,15 @@ QBCore.Functions.CreateCallback('qb-pawnshop:server:getPawnItems', function(sour
     local src = source
     local Player = QBCore.Functions.GetPlayer(src)
     local info = {}
-    if recieved[Player.PlayerData.citizenid] then
+
+    if recieved[getCid(src)] then
         for k, v in pairs (recieved[getCid(src)].items) do
-            table.insert(info, {label = QBCore.Shared.Items[v.item].label, item = v.item, amount = editAmount(src, v.item), price = v.price})
+            recieved[getCid(source)].items[k].amount = editAmount(src, v.item)
         end
-        recieved[getCid(src)].items = info
         cb(recieved[getCid(src)])
         return
     end
+
     local has = 0
     for k, v in pairs (items.Pawn) do
         local item = Player.Functions.GetItemByName(k)
@@ -120,15 +133,14 @@ QBCore.Functions.CreateCallback('qb-pawnshop:server:getPawnItems', function(sour
         cb(false)
         return
     end
-    recieved[getCid(src)] = {name = Player.PlayerData.charinfo.firstname .. ' ' .. Player.PlayerData.charinfo.lastname, items = info}
+    recieved[getCid(src)] = {name = getName(src), items = info}
     cb(recieved[getCid(src)])
 end)
 
 local function verifyItem(source, itemName, itemPrice, amount, total)
     local src = source
-    local Player = QBCore.Functions.GetPlayer(src)
-    if not recieved[Player.PlayerData.citizenid] then return false end
-    for k, v in pairs (recieved[Player.PlayerData.citizenid].items) do
+    if not recieved[getCid(src)] then return false end
+    for k, v in pairs (recieved[getCid(src)].items) do
         if v.item == itemName and v.price == itemPrice and tonumber(v.amount) >= tonumber(amount) then
             if v.price * amount == total then
                 return true
@@ -149,7 +161,7 @@ local function handleSell(source, item, amount, price)
             Player.Functions.AddMoney('cash', price, 'qb-pawnshop:server:sellPawnItems')
         end
         TriggerClientEvent('QBCore:Notify', src, Lang:t('success.sold', { value = tonumber(amount), value2 = QBCore.Shared.Items[item].label, value3 = price }), 'success')
-        TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[item], 'remove')
+        TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[item], 'remove', tonumber(amount))
     else
         TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_items'), 'error')
         return false
@@ -207,23 +219,23 @@ QBCore.Functions.CreateCallback('qb-pawnshop:server:getSmelt', function(source, 
             cb(info)
             return
         else
-            cb('already smelt')
+            local time = math.floor(os.difftime(smelting[1].time, os.time()) / 60)
+            cb('already smelt', time)
             return
         end
     else
         local info = {}
         local has = 0
         for k, v in pairs (items.Smelt) do
-            has = has + 1
             local item = Player.Functions.GetItemByName(k)
             if item and item.amount > 0 then
+                has = has + 1
                 table.insert(info, {label = QBCore.Shared.Items[k].label, item = k, amount = item.amount, time = v.time, recipe = v.reward})
             else
                 table.insert(info, {label = QBCore.Shared.Items[k].label, item = k, amount = 0, time = v.time, recipe = v.reward})
             end
         end
         if has == 0 then
-            TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_items'), 'error')
             cb(false)
             return
         end
@@ -241,6 +253,7 @@ local function verifynremoveSmelt(source, item, amount)
             TriggerClientEvent('qb-inventory:client:ItemBox', src, QBCore.Shared.Items[item], 'remove', amount)
             MySQL.insert('INSERT INTO smelting (citizenid, item, amount, time) VALUES (?, ?, ?,?)',
             {getCid(src), item, amount, ((amount * items.Smelt[item].time) * 60) + os.time()})
+            
             return true
         else
             return false
@@ -260,7 +273,7 @@ RegisterNetEvent('qb-pawnshop:server:meltItemRemove', function(itemName, itemAmo
         TriggerClientEvent('QBCore:Notify', src, Lang:t('error.no_items'), 'error')
          return
     else
-        TriggerClientEvent('QBCore:Notify', src, Lang:t('success.smelt_started', { value = itemAmount, value2 = QBCore.Shared.Items[itemName].label }), 'success')
+        TriggerClientEvent('QBCore:Notify', src, Lang:t('success.smelt_started', { amount = itemAmount, item = QBCore.Shared.Items[itemName].label }), 'success')
         TriggerClientEvent('qb-pawnshop:client:openMenu', src)
     end
 end)

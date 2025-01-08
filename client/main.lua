@@ -142,16 +142,18 @@ RegisterNetEvent('qb-pawnshop:client:openPawn', function(data)
 end)
 
 RegisterNetEvent('qb-pawnshop:client:openMelt', function(data)
-    QBCore.Functions.TriggerCallback('qb-pawnshop:server:getSmelt', function(smelt)
+    QBCore.Functions.TriggerCallback('qb-pawnshop:server:getSmelt', function(smelt, time)
         if smelt == 'already smelt' then 
             QBCore.Functions.Notify(Lang:t('info.already_melt'), 'error')
-            Wait(250)
-            TriggerEvent('qb-pawnshop:client:openMenu')
+            TriggerServerEvent('qb-phone:server:sendNewMail', {
+                sender = Lang:t('email.sender'),
+                subject = Lang:t('email.subject'),
+                message = Lang:t('email.message2', { time = time }),
+                button = {}
+            })
             return
-        elseif smelt == 'no items' then
-            QBCore.Functions.Notify(Lang:t('info.no_items'), 'error')
-            Wait(250)
-            TriggerEvent('qb-pawnshop:client:openMenu')
+        elseif smelt == false then
+            QBCore.Functions.Notify(Lang:t('error.no_items'), 'error')
             return
         end
         local meltMenu = {
@@ -174,7 +176,7 @@ RegisterNetEvent('qb-pawnshop:client:openMelt', function(data)
                         args = {
                             item = v.item,
                             amount = v.amount,
-
+                            time = v.time
                         }
                     }
                 }
@@ -241,6 +243,12 @@ RegisterNetEvent('qb-pawnshop:client:meltItems', function(item)
         if meltingItem.amount ~= nil then
             if tonumber(meltingItem.amount) > 0 then
                 TriggerServerEvent('qb-pawnshop:server:meltItemRemove',item.item, meltingItem.amount)
+                TriggerServerEvent('qb-phone:server:sendNewMail', {
+                    sender = Lang:t('email.sender'),
+                    subject = Lang:t('email.subject'),
+                    message = Lang:t('email.message', { item = QBCore.Shared.Items[item.item].label, amount = meltingItem.amount, time = item.time * meltingItem.amount }),
+                    button = {}
+                })
             else
                 QBCore.Functions.Notify(Lang:t('error.no_melt'), 'error')
             end
